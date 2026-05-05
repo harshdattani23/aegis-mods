@@ -1,0 +1,159 @@
+{
+  "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
+  "name": "aegis-mods",
+  "permissions": {
+    "http": {
+      "enable": true,
+      "domains": [
+        "generativelanguage.googleapis.com"
+      ]
+    },
+    "redis": true,
+    "reddit": {
+      "enable": true,
+      "scope": "moderator"
+    }
+  },
+  "post": {
+    "dir": "dist/client",
+    "entrypoints": {
+      "default": {
+        "inline": true,
+        "entry": "splash.html"
+      },
+      "dashboard": {
+        "entry": "game.html"
+      }
+    }
+  },
+  "server": {
+    "dir": "dist/server",
+    "entry": "index.cjs"
+  },
+  "menu": {
+    "items": [
+      {
+        "label": "Open Aegis Dashboard",
+        "description": "Triage queue, watchlist, audit log",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/open-dashboard"
+      },
+      {
+        "label": "Triage with Aegis",
+        "description": "Run AI triage on this post",
+        "location": "post",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/triage-post"
+      },
+      {
+        "label": "Triage with Aegis",
+        "description": "Run AI triage on this comment",
+        "location": "comment",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/triage-comment"
+      }
+    ]
+  },
+  "triggers": {
+    "onAppInstall": "/internal/triggers/app-install",
+    "onPostSubmit": "/internal/triggers/post-submit",
+    "onCommentSubmit": "/internal/triggers/comment-submit",
+    "onPostReport": "/internal/triggers/post-report",
+    "onCommentReport": "/internal/triggers/comment-report",
+    "onModAction": "/internal/triggers/mod-action",
+    "onAutomoderatorFilterPost": "/internal/triggers/automod-filter-post",
+    "onAutomoderatorFilterComment": "/internal/triggers/automod-filter-comment"
+  },
+  "settings": {
+    "global": {
+      "gemini_api_key": {
+        "type": "string",
+        "label": "Gemini API key",
+        "helpText": "Server-side key for Gemini 3.1 Flash Lite. Get one at aistudio.google.com. Used for triage, risk scoring, and coach.",
+        "isSecret": true
+      }
+    },
+    "subreddit": {
+      "rules": {
+        "type": "paragraph",
+        "label": "Subreddit rules",
+        "helpText": "Paste your full rules text. Aegis grounds every verdict in these rules + your sub's history.",
+        "placeholder": "Rule 1: ..."
+      },
+      "autonomy": {
+        "type": "select",
+        "label": "Autonomy level",
+        "helpText": "ADVISORY = AI suggests only. ASSISTED = auto-acts when above thresholds. AUTONOMOUS = acts on all high-confidence items.",
+        "options": [
+          {
+            "label": "Advisory (AI suggests, mod always decides)",
+            "value": "advisory"
+          },
+          {
+            "label": "Assisted (AI auto-acts on high-confidence items)",
+            "value": "assisted"
+          },
+          {
+            "label": "Autonomous (AI handles obvious violations)",
+            "value": "autonomous"
+          }
+        ],
+        "defaultValue": "advisory"
+      },
+      "confidence_threshold": {
+        "type": "number",
+        "label": "Auto-action confidence threshold (0-1)",
+        "helpText": "AI auto-acts only when confidence >= this value (assisted/autonomous modes).",
+        "defaultValue": 0.85
+      },
+      "severity_threshold": {
+        "type": "number",
+        "label": "Auto-action severity floor (1-5)",
+        "helpText": "AI only auto-acts on items with severity >= this value.",
+        "defaultValue": 4
+      },
+      "daily_cost_cap_usd": {
+        "type": "number",
+        "label": "Daily cost cap (USD)",
+        "helpText": "Hard ceiling on Gemini spend per day. Aegis pauses LLM calls when reached.",
+        "defaultValue": 5
+      },
+      "feature_arbiter": {
+        "type": "boolean",
+        "label": "Enable Arbiter (queue triage)",
+        "defaultValue": true
+      },
+      "feature_sentinel": {
+        "type": "boolean",
+        "label": "Enable Sentinel (predictive risk scoring)",
+        "defaultValue": true
+      },
+      "feature_crisis": {
+        "type": "boolean",
+        "label": "Enable Crisis Mode (brigade detection + auto-throttle)",
+        "defaultValue": true
+      },
+      "feature_vision": {
+        "type": "boolean",
+        "label": "Enable Vision (image moderation)",
+        "defaultValue": true
+      },
+      "feature_coach": {
+        "type": "boolean",
+        "label": "Enable Coach (pre-post user guidance)",
+        "defaultValue": false
+      }
+    }
+  },
+  "forms": {
+    "aegisTriage": "/internal/form/aegis-triage-submit"
+  },
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build"
+  },
+  "dev": {
+    "subreddit": "aegis_mods_dev"
+  }
+}
