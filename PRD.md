@@ -155,7 +155,7 @@ budget:daily:{sub}:{date}         Counter, INCRBY tokens used; HARD CAP enforced
 rate:gemini:{sub}                 Counter with TTL=60s for QPS limit
 ```
 
-**Embedding storage**: 768-dim float32 from `text-embedding-004`. Pack as 3KB base64 per item. 10K items ≈ 30MB per sub — fits Devvit Redis quota.
+**Embedding storage**: 768-dim float32 from `gemini-embedding-001` (Matryoshka-truncated). Pack as ~4KB base64 per item. 10K items ≈ 40MB per sub — fits Devvit Redis quota.
 
 **Search**: brute-force cosine over the last 5K items per query (~15ms in JS). For older items, sample by stratified recency (recent + key historical decisions).
 
@@ -165,12 +165,12 @@ rate:gemini:{sub}                 Counter with TTL=60s for QPS limit
 
 | Use case | Model | Why | Approx cost |
 |---|---|---|---|
-| Triage verdict | **Gemini 3.1 Flash Lite** | High volume, structured output, fast | ~$0.0003/item |
+| Triage verdict | **Gemini 3.1 Flash Lite** (`gemini-3.1-flash-lite-preview`) | High volume, structured output, fast | ~$0.0003/item |
 | Risk score (Sentinel) | Gemini 3.1 Flash Lite | Same call shape at submit time | included |
 | Coach scoring | Gemini 3.1 Flash Lite | Real-time, every keystroke pause | ~$0.0001/draft |
-| Vision | Gemini 2.5 Pro (vision) | Image posts only | ~$0.003/image |
-| Escalation reasoning | Gemini 2.5 Pro | When Flash Lite confidence < 0.6 | ~$0.005/escalation |
-| Embeddings | text-embedding-004 | Memory substrate | ~$0.00001/item |
+| Vision | Gemini 3.1 Pro (`gemini-3.1-pro-preview`) | Image posts only | ~$0.003/image |
+| Escalation reasoning | Gemini 3.1 Pro | When Flash Lite confidence < 0.6 | ~$0.005/escalation |
+| Embeddings | `gemini-embedding-001` @ 768 dim (Matryoshka) | Memory substrate. Replaces text-embedding-004, which was shut down 2026-01-14. | ~$0.00001/item |
 
 **Estimated daily cost** for a 5K-member sub at ~1000 events/day: **~$0.45/day**.
 

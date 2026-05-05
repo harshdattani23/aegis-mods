@@ -6,6 +6,7 @@ import { createPost } from '../core/post';
 import { triage } from '../services/triage';
 import { saveVerdict, type StoredVerdict } from '../services/verdictStore';
 import { addToQueue } from '../services/queue';
+import { memory, type SearchHit } from '../services/memory';
 import type { TriageInput, TriageResult } from '../services/types';
 
 export const menu = new Hono();
@@ -48,8 +49,9 @@ menu.post('/triage-post', async (c) => {
     };
 
     const result = await triage(input);
+    const precedent = await fetchPrecedentForForm('post', input.id, input.body, input.title);
     await persistVerdict(input, result);
-    return c.json<UiResponse>(buildTriageFormResponse(input, result), 200);
+    return c.json<UiResponse>(buildTriageFormResponse(input, result, precedent), 200);
   } catch (error) {
     console.error(`Triage post error: ${error}`);
     return c.json<UiResponse>(
@@ -78,8 +80,9 @@ menu.post('/triage-comment', async (c) => {
     };
 
     const result = await triage(input);
+    const precedent = await fetchPrecedentForForm('comment', input.id, input.body);
     await persistVerdict(input, result);
-    return c.json<UiResponse>(buildTriageFormResponse(input, result), 200);
+    return c.json<UiResponse>(buildTriageFormResponse(input, result, precedent), 200);
   } catch (error) {
     console.error(`Triage comment error: ${error}`);
     return c.json<UiResponse>(
@@ -88,6 +91,44 @@ menu.post('/triage-comment', async (c) => {
     );
   }
 });
+
+/**
+ * Look up similar past mod-decided items for the triage form. Best-effort:
+ * if Memory hasn't seen this item yet (or has no precedent), returns [] and
+ * the form omits the precedent block. Never throws.
+ */
+async function fetchPrecedentForForm(
+  kind: 'post' | 'comment',
+  id: string,
+  body: string,
+  title?: string
+): Promise<SearchHit[]> {
+  const sub = context.subredditName;
+  if (!sub) return [];
+  try {
+    const stored = await memory.getItem(sub, kind, id);
+    const queryText = stored?.embedding
+      ? null
+      : [title, body].filter(Boolean).join('\n\n');
+    if (!stored?.embedding && !queryText?.trim()) return [];
+
+    const hits = await memory.searchSimilar(
+      sub,
+      stored?.embedding ?? queryText ?? '',
+      { k: 3, minSimilarity: 0.65 }
+    );
+    return hits.filter(
+      (h) =>
+        h.item.id !== id &&
+        (h.item.outcome === 'approve' ||
+          h.item.outcome === 'remove' ||
+          h.item.outcome === 'ban')
+    );
+  } catch (err) {
+    console.warn(`fetchPrecedentForForm failed: ${err}`);
+    return [];
+  }
+}
 
 async function persistVerdict(input: TriageInput, result: TriageResult): Promise<void> {
   const sub = context.subredditName ?? 'unknown';
@@ -103,17 +144,27 @@ async function persistVerdict(input: TriageInput, result: TriageResult): Promise
   await addToQueue(sub, input.id, result.severity * Math.max(0.01, result.confidence));
 }
 
-/**
- * Build the rich triage form response. Devvit forms get a multi-line
- * description, an action select, and an editable DM message.
- *
- * Day 1: precedent panel is mocked (the "similar prior items" line) so the
- * UX exists before the Memory backfill lands. Day 2 wires real precedent
- * via embedding lookup.
- */
-function buildTriageFormResponse(input: TriageInput, result: TriageResult): UiResponse {
+function buildTriageFormResponse(
+  input: TriageInput,
+  result: TriageResult,
+  precedent: SearchHit[]
+): UiResponse {
   const conf = Math.round(result.confidence * 100);
   const sevBar = '█'.repeat(result.severity) + '░'.repeat(5 - result.severity);
+  const precedentLines =
+    precedent.length === 0
+      ? ['  • (no similar prior decisions yet — Memory still indexing this sub)']
+      : precedent.map((h) => {
+          const outcome =
+            h.item.outcome === 'approve'
+              ? 'APPROVED'
+              : h.item.outcome === 'ban'
+                ? 'BANNED'
+                : 'REMOVED';
+          const sim = Math.round(h.similarity * 100);
+          const excerpt = h.item.body.slice(0, 90).replace(/\s+/g, ' ').trim();
+          return `  • [${outcome} · ${sim}%] "${excerpt}${h.item.body.length > 90 ? '…' : ''}"`;
+        });
   const description = [
     `VERDICT: ${result.verdict.toUpperCase()}    confidence ${conf}%    severity ${sevBar} ${result.severity}/5`,
     result.rule_violated ? `Rule cited: ${result.rule_violated}` : 'Rule cited: (none)',
@@ -121,7 +172,7 @@ function buildTriageFormResponse(input: TriageInput, result: TriageResult): UiRe
     `Reasoning: ${result.reasoning}`,
     '',
     'Precedent (similar prior decisions in this sub):',
-    '  • [pending — Memory backfill ships Day 2]',
+    ...precedentLines,
     '',
     `Target: ${input.kind} ${input.id} by u/${input.authorUsername}`,
     `Model: ${result.model}    latency ${result.latency_ms}ms`,

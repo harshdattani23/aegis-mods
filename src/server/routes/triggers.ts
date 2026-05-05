@@ -11,14 +11,27 @@ import type {
   TriggerResponse,
 } from '@devvit/web/shared';
 import { context } from '@devvit/web/server';
+import { memory, type MemoryItem } from '../services/memory';
 
 export const triggers = new Hono();
 
 /**
- * Day 1 wiring: handlers are registered and log incoming events. Real logic
- * (auto-triage, Memory ingestion, calibration capture, crisis detection) is
- * layered in over Days 2–11 per the PRD schedule.
+ * Memory ingestion runs inside trigger handlers. Failures (Gemini timeout,
+ * Redis quota, missing API key) must NEVER throw back to Devvit — the trigger
+ * has to ack 200 or Reddit retries indefinitely. We log and swallow.
  */
+async function ingestToMemory(
+  sub: string,
+  item: Omit<MemoryItem, 'embedding'>
+): Promise<void> {
+  if (!item.body || item.body.trim().length < 3) return;
+  try {
+    const embedding = await memory.embed(item.body);
+    await memory.storeItem(sub, { ...item, embedding });
+  } catch (err) {
+    console.warn(`[aegis] memory ingest failed for ${item.kind} ${item.id}: ${err}`);
+  }
+}
 
 triggers.post('/app-install', async (c) => {
   try {
@@ -37,8 +50,19 @@ triggers.post('/app-install', async (c) => {
 triggers.post('/post-submit', async (c) => {
   try {
     const input = await c.req.json<OnPostSubmitRequest>();
-    console.log(`[aegis] post-submit ${input.post?.id} by ${input.author?.name}`);
-    // Day 2: embed + store in Memory.
+    const sub = context.subredditName;
+    const post = input.post;
+    console.log(`[aegis] post-submit ${post?.id} by ${input.author?.name}`);
+    if (sub && post?.id) {
+      const body = [post.title, post.selftext ?? ''].filter(Boolean).join('\n\n');
+      await ingestToMemory(sub, {
+        kind: 'post',
+        id: post.id,
+        body,
+        authorUsername: input.author?.name,
+        createdUtc: post.createdAt ? Number(post.createdAt) : Date.now(),
+      });
+    }
     // Day 9: Sentinel risk score.
     return c.json<TriggerResponse>({}, 200);
   } catch (error) {
@@ -50,8 +74,18 @@ triggers.post('/post-submit', async (c) => {
 triggers.post('/comment-submit', async (c) => {
   try {
     const input = await c.req.json<OnCommentSubmitRequest>();
-    console.log(`[aegis] comment-submit ${input.comment?.id} by ${input.author?.name}`);
-    // Day 2: embed + store in Memory.
+    const sub = context.subredditName;
+    const comment = input.comment;
+    console.log(`[aegis] comment-submit ${comment?.id} by ${input.author?.name}`);
+    if (sub && comment?.id && comment.body) {
+      await ingestToMemory(sub, {
+        kind: 'comment',
+        id: comment.id,
+        body: comment.body,
+        authorUsername: input.author?.name,
+        createdUtc: comment.createdAt ? Number(comment.createdAt) : Date.now(),
+      });
+    }
     // Day 10: Crisis detector window update.
     return c.json<TriggerResponse>({}, 200);
   } catch (error) {

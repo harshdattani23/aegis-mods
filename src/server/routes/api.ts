@@ -13,11 +13,13 @@ import {
 } from '../services/queue';
 import { saveVerdict } from '../services/verdictStore';
 import { triage, getAegisSettings } from '../services/triage';
+import { memory, type MemoryItem } from '../services/memory';
 import type {
   ActionRequest,
   ActionResponse,
   DashboardInitResponse,
   ErrorResponse,
+  PrecedentItem,
   PrecedentResponse,
   QueueItem,
 } from '../../shared/api';
@@ -72,14 +74,80 @@ api.get('/dashboard/init', async (c) => {
 });
 
 api.get('/precedent/:targetId', async (c) => {
+  const sub = context.subredditName ?? '';
   const targetId = c.req.param('targetId');
-  // Day 1: only demo precedent. Day 2 wires real Memory similarity search.
-  const items = getDemoPrecedent(targetId);
-  return c.json<PrecedentResponse>({
-    type: 'precedent',
-    target_id: targetId,
-    items,
-  });
+
+  // Demo IDs always render demo precedent — keeps the dashboard storyboard
+  // intact while a real sub builds up Memory.
+  if (!sub || targetId.includes('demo')) {
+    return c.json<PrecedentResponse>({
+      type: 'precedent',
+      target_id: targetId,
+      items: getDemoPrecedent(targetId),
+    });
+  }
+
+  try {
+    const kind: MemoryItem['kind'] = targetId.startsWith('t1_') ? 'comment' : 'post';
+    const stored = await memory.getItem(sub, kind, targetId);
+    if (!stored?.embedding) {
+      return c.json<PrecedentResponse>({
+        type: 'precedent',
+        target_id: targetId,
+        items: getDemoPrecedent(targetId),
+      });
+    }
+
+    const hits = await memory.searchSimilar(sub, stored.embedding, {
+      k: 5,
+      minSimilarity: 0.6,
+    });
+
+    const items: PrecedentItem[] = hits
+      .filter(
+        (h) =>
+          h.item.id !== targetId &&
+          (h.item.outcome === 'approve' ||
+            h.item.outcome === 'remove' ||
+            h.item.outcome === 'ban')
+      )
+      .map((h) => {
+        const outcome: PrecedentItem['outcome'] =
+          h.item.outcome === 'approve'
+            ? 'approved'
+            : h.item.outcome === 'ban'
+              ? 'banned'
+              : 'removed';
+        return {
+          key: `mem:item:${sub}:${h.item.kind}:${h.item.id}`,
+          outcome,
+          excerpt: h.item.body.slice(0, 240),
+          rule: h.item.ruleId ?? null,
+          mod_username: null,
+          mod_reason: h.item.modReason ?? null,
+          decided_at: h.item.createdUtc,
+          similarity: h.similarity,
+          is_demo: false,
+        };
+      });
+
+    if (items.length === 0) {
+      return c.json<PrecedentResponse>({
+        type: 'precedent',
+        target_id: targetId,
+        items: getDemoPrecedent(targetId),
+      });
+    }
+
+    return c.json<PrecedentResponse>({ type: 'precedent', target_id: targetId, items });
+  } catch (err) {
+    console.error(`/api/precedent error: ${err}`);
+    return c.json<PrecedentResponse>({
+      type: 'precedent',
+      target_id: targetId,
+      items: getDemoPrecedent(targetId),
+    });
+  }
 });
 
 api.post('/action', async (c) => {
