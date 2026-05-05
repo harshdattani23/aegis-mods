@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "devvit-docs": {
+      "source": "reddit/devvit-skills",
+      "sourceType": "github",
+      "skillPath": "skills/devvit-docs/SKILL.md",
+      "computedHash": "59b6b127af03d0c1cea8de76b2059e1b8d2d24f4872606fceae9c994c9d5b0d6"
+    },
+    "devvit-logs": {
+      "source": "reddit/devvit-skills",
+      "sourceType": "github",
+      "skillPath": "skills/devvit-logs/SKILL.md",
+      "computedHash": "b81179b33145ed79b4d43fd653620dda200ce4a10a92b2d174865e380a5bb7a3"
+    },
+    "devvit-skill-setup": {
+      "source": "reddit/devvit-skills",
+      "sourceType": "github",
+      "skillPath": "skills/devvit-skills-setup/SKILL.md",
+      "computedHash": "f80d73438727b78945f73650fb8694652faac57fd89737d659c9fe3a2c940dd4"
+    }
+  }
+}
